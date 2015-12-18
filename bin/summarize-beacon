@@ -1,1 +1,108 @@
-# Placeholder for your script.
+import sys
+import urllib.request
+import xml.etree.ElementTree as ETree
+import getopt
+import datetime
+from datetime import date
+from dateutil.relativedelta import relativedelta
+from collections import Counter
+import time
+
+# gets an xml from beacon randomness api by optional timestamp
+def get_record_xml(timestamp=0):
+    url = 'http://beacon.nist.gov/rest/record/last' if timestamp == 0 \
+        else "http://beacon.nist.gov/rest/record/" + str(timestamp)
+    return urllib.request.urlopen(url).read()
+
+# extracts outputValue element from xml
+def get_output_value(xml_string):
+    for el in ETree.fromstring(xml_string):
+        if el.tag.endswith('outputValue'):
+            return el.text
+
+# counts chars in the string and returns dictionary with chars as keys and their number in string as values
+def count_chars(string):
+    chars = {}
+    for c in string:
+        chars[c] = chars[c] + 1 if c in chars.keys() else 1
+    return chars
+
+
+def dict_to_csv(d):
+    csv = ''
+    for k,v in d.items():
+        csv += str(k) + ',' + str(v) + '\n'
+    return csv.strip()
+
+# parses a string of type "3 months 1 day 1 hour ago" into a timestamp
+def parse_time(s):
+    parts = s.split(' ')
+    if len(parts) % 2 == 0 or not parts[-1] == "ago":
+        print("Invalid time argument: " + s)
+        return None
+    parts = parts[:-1]
+    months = minutes = hours = days = 0
+    try:
+        for p in parts:
+            i = parts.index(p)
+            value = parts[i - 1]
+            if "minute" in p:
+                minutes = int(value)
+            if "hour" in p:
+                hours = int(value)
+            if "day" in p:
+                days = int(value)
+            if "month" in p:
+                months = int(value)
+    except Exception as e:
+        print("Error parsing time arguments: " + s)
+        print(e)
+        return None
+    d = datetime.datetime.now() + relativedelta(months=-months, minutes = -minutes, hours = -hours, days=-days)
+    return int(str(time.mktime(d.timetuple()))[:-2])
+
+
+def main():
+    args = sys.argv[1:]
+
+    # when no args provided in cmd
+    if len(args) == 0:
+        xml = get_record_xml()
+        output = get_output_value(xml)
+        chars_report = count_chars(output)
+        print(dict_to_csv(chars_report))
+        exit(0)
+
+    # when time arguments are provided
+    if len(args) not in (2,4):
+       print("Invalid arguments")
+       exit(2)
+    else:
+        time1 = parse_time(args[1])
+        time2 = parse_time(args[3]) if len(args) > 3 else None
+        chars_report1 = chars_report2 = None
+        try:
+            if time1 < 1378395540 or time2 < 1378395540:
+                raise Exception()
+        except Exception:
+            print("Timeframe must be after Unix epoch time")
+        if time1 is not None:
+            xml1 = get_record_xml(time1)
+            output1 = get_output_value(xml1)
+            chars_report1 = count_chars(output1)
+        if time2 is not None:
+            xml2 = get_record_xml(time2)
+            output2 = get_output_value(xml2)
+            chars_report2 = count_chars(output2)
+    # summarizing number of characters for the timestampss
+    if chars_report1 is not None and chars_report2 is not None:
+        reports = Counter(chars_report1) + Counter(chars_report2)
+        csv = dict_to_csv(dict(reports))
+    elif chars_report1 is not None:
+        csv = dict_to_csv(chars_report1)
+    else:
+        csv = dict_to_csv(chars_report2)
+    print(csv)
+
+if __name__ == "__main__":
+    main()
